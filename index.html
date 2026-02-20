@@ -45,11 +45,11 @@
         return window.matchMedia('(prefers-color-scheme: dark)').matches;
       });
 
-      // Substituído o Estadão pelo Washington Post com flag de tradução
+      // Substituído para o feed geral (National) do Washington Post
       const feedsConfig = [
         { id: 'infomoney', name: 'InfoMoney', handle: '@infomoney', avatar: 'https://ui-avatars.com/api/?name=IM&background=0D9488&color=fff&rounded=true&bold=true', url: 'https://www.infomoney.com.br/feed/', translate: false },
         { id: 'valor', name: 'Valor Econômico', handle: '@valor', avatar: 'https://ui-avatars.com/api/?name=VE&background=005A54&color=fff&rounded=true&bold=true', url: 'https://valor.globo.com/rss/valor', translate: false },
-        { id: 'washingtonpost', name: 'Washington Post', handle: '@washingtonpost', avatar: 'https://ui-avatars.com/api/?name=WP&background=000&color=fff&rounded=true&bold=true', url: 'https://feeds.washingtonpost.com/rss/business', translate: true }
+        { id: 'washingtonpost', name: 'Washington Post', handle: '@washingtonpost', avatar: 'https://ui-avatars.com/api/?name=WP&background=000&color=fff&rounded=true&bold=true', url: 'https://feeds.washingtonpost.com/rss/national', translate: true }
       ];
 
       const marketKeywords = [
@@ -135,13 +135,11 @@
         return null;
       };
 
-      // HACK: Motor de tradução via Google Translate Não-Oficial
       const translateText = async (text) => {
         if (!text) return "";
         try {
           const res = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=pt-br&dt=t&q=${encodeURIComponent(text)}`);
           const data = await res.json();
-          // Junta todos os parágrafos traduzidos
           return data[0].map(item => item[0]).join('');
         } catch (e) {
           console.error("Erro na tradução, retornando original:", e);
@@ -235,9 +233,7 @@
       const processAndTranslateNews = async (items, feed) => {
         let uniqueNews = Array.from(new Map(items.map(item => [item.link, item])).values());
         
-        // Se a fonte for internacional (Washington Post), aciona a tradução
         if (feed.translate) {
-          // Limitado a 12 itens para não sobrecarregar e ser bloqueado pelo Google
           const topNews = uniqueNews.slice(0, 12);
           uniqueNews = await Promise.all(topNews.map(async (item) => {
             const translatedTitle = await translateText(item.title);
@@ -264,7 +260,6 @@
             
             await processAndTranslateNews(items, feed);
           } catch (err) {
-            // PLANO C (Fallback pelo Google News)
             try {
               let gNewsQuery = '';
               if (feed.id === 'washingtonpost') gNewsQuery = 'site:washingtonpost.com';
