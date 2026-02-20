@@ -12,7 +12,7 @@
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <style>
-    /* Estilização da barra de rolagem para ficar mais elegante e moderna */
+    /* Estilização da barra de rolagem */
     .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
     .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
     .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
@@ -20,14 +20,13 @@
     .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
   </style>
 </head>
-<body class="bg-gray-100 dark:bg-[#101214] text-gray-900 dark:text-gray-100 font-sans transition-colors duration-200 overflow-hidden">
-  <div id="root"></div>
+<body class="bg-gray-100 dark:bg-[#101214] text-gray-900 dark:text-gray-100 font-sans transition-colors duration-200 overflow-hidden h-[100dvh] flex flex-col">
+  <div id="root" class="h-full flex flex-col"></div>
 
   <script type="text/babel">
     const { useState, useEffect, useCallback } = React;
 
     const App = () => {
-      // Estado inicial com colunas independentes
       const [feedsData, setFeedsData] = useState({
         infomoney: { news: [], loading: true, error: null },
         valor:     { news: [], loading: true, error: null },
@@ -99,43 +98,41 @@
       };
 
       const updateFeedState = (id, newState) => {
-        setFeedsData(prev => ({
-          ...prev,
-          [id]: { ...prev[id], ...newState }
-        }));
+        setFeedsData(prev => ({ ...prev, [id]: { ...prev[id], ...newState } }));
       };
 
-      // Função blindada contra bloqueios: tenta rotacionar proxies se a Globo/Estadão bloquear o acesso
       const fetchXML = async (url) => {
         const timestamp = new Date().getTime();
         const urlWithCache = url + (url.includes('?') ? '&' : '?') + 't=' + timestamp;
         
+        // Rotação de proxies mais eficiente
         const proxies = [
-          `https://corsproxy.io/?${encodeURIComponent(urlWithCache)}`,
-          `https://api.allorigins.win/raw?url=${encodeURIComponent(urlWithCache)}`,
-          `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(urlWithCache)}`
+          `https://api.allorigins.win/get?url=${encodeURIComponent(urlWithCache)}`,
+          `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(urlWithCache)}`,
+          `https://corsproxy.io/?${encodeURIComponent(urlWithCache)}`
         ];
 
-        let lastErrorMsg = '';
-        
         for (const proxy of proxies) {
           try {
             const res = await fetch(proxy);
-            if (!res.ok) throw new Error(`Status ${res.status}`);
-            const text = await res.text();
+            if (!res.ok) continue;
             
-            // Verifica se o site retornou a página de bloqueio do Cloudflare ao invés do feed RSS
-            if ((text.includes('<rss') || text.includes('<feed')) && !text.toLowerCase().includes('<title>just a moment...</title>')) {
+            let text = await res.text();
+            
+            // Se for a API do allorigins, o XML vem envelopado em um JSON na chave "contents"
+            if (proxy.includes('allorigins.win/get')) {
+              const json = JSON.parse(text);
+              text = json.contents;
+            }
+            
+            if ((text.includes('<rss') || text.includes('<feed')) && !text.toLowerCase().includes('just a moment...')) {
               return text;
-            } else {
-              throw new Error('Bloqueio do site (Cloudflare/HTML)');
             }
           } catch (e) {
-            lastErrorMsg = e.message;
             continue; 
           }
         }
-        throw new Error(`Acesso barrado pelos servidores. Tentaremos de novo em breve.`);
+        throw new Error('Bloqueio nos proxies originais');
       };
 
       const parseXML = (xmlText) => {
@@ -186,20 +183,43 @@
 
       const fetchFeeds = useCallback((isSilentRefresh = false) => {
         feedsConfig.forEach(async (feed) => {
-          if (!isSilentRefresh) {
-            updateFeedState(feed.id, { loading: true, error: null });
-          }
+          if (!isSilentRefresh) updateFeedState(feed.id, { loading: true, error: null });
           
           try {
             const xml = await fetchXML(feed.url);
             const items = parseXML(xml);
             
-            // Remove duplicatas
             const uniqueNews = Array.from(new Map(items.map(item => [item.link, item])).values());
             updateFeedState(feed.id, { news: uniqueNews, loading: false, error: null });
           } catch (err) {
-            console.error(`Erro ao carregar ${feed.name}:`, err);
-            updateFeedState(feed.id, { loading: false, error: err.message });
+            // PLANO C: Se os proxies falharem (comum no Estadão), usa a API do rss2json direto
+            try {
+              const fallbackRes = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feed.url)}`);
+              const fallbackData = await fallbackRes.json();
+              
+              if (fallbackData.status === 'ok' && fallbackData.items.length > 0) {
+                 const items = fallbackData.items.map(item => {
+                   // Ajuste do fuso horário para bater com o horário de Brasília
+                   let pubDate = new Date(item.pubDate.replace(' ', 'T') + '-03:00');
+                   if (isNaN(pubDate.getTime())) pubDate = new Date();
+                   
+                   return {
+                     id: item.link + Math.random(),
+                     title: item.title,
+                     description: cleanText(item.description).substring(0, 150) + '...',
+                     link: item.link,
+                     dateObj: pubDate,
+                     image: item.enclosure?.link || extractImage(item.content) || extractImage(item.description)
+                   };
+                 });
+                 const uniqueNews = Array.from(new Map(items.map(i => [i.link, i])).values());
+                 updateFeedState(feed.id, { news: uniqueNews, loading: false, error: null });
+              } else {
+                 throw new Error('Falha no fallback');
+              }
+            } catch (fallbackErr) {
+              updateFeedState(feed.id, { loading: false, error: `Acesso barrado pelos servidores da notícia.` });
+            }
           }
         });
       }, []);
@@ -213,9 +233,8 @@
       const isAnyLoading = Object.values(feedsData).some(f => f.loading);
 
       return (
-        <div className="h-screen flex flex-col bg-gray-100 dark:bg-[#101214] transition-colors duration-200">
+        <div className="flex flex-col h-full bg-gray-100 dark:bg-[#101214] transition-colors duration-200">
           
-          {/* Barra Superior Fixo */}
           <header className="flex-shrink-0 bg-white dark:bg-black border-b border-gray-200 dark:border-gray-800 px-4 md:px-6 py-3 flex justify-between items-center shadow-sm z-20">
             <h1 className="text-xl font-extrabold text-gray-900 dark:text-gray-100 tracking-tight flex items-center gap-2">
               Radar Econômico
@@ -227,31 +246,30 @@
             </h1>
             
             <div className="flex items-center gap-2">
-              <button onClick={() => setDarkMode(!darkMode)} className="hover:bg-gray-100 dark:hover:bg-gray-800 p-2 rounded-full transition-colors text-gray-600 dark:text-gray-400" title="Alternar Tema">
+              <button onClick={() => setDarkMode(!darkMode)} className="hover:bg-gray-100 dark:hover:bg-gray-800 p-2 rounded-full transition-colors text-gray-600 dark:text-gray-400">
                 {darkMode ? (
                   <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4.22 4.22a1 1 0 011.415 0l.708.708a1 1 0 01-1.414 1.414l-.708-.708a1 1 0 010-1.414zM18 10a1 1 0 01-1 1h-1a1 1 0 110-2h1a1 1 0 011 1zM14.95 15.657a1 1 0 00-1.414 1.414l.708.708a1 1 0 001.414-1.414l-.708-.708zM10 16a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zm-4.22-4.22a1 1 0 010-1.415l.708-.708a1 1 0 011.414 1.414l-.708.708a1 1 0 01-1.414 0zM2 10a1 1 0 011-1h1a1 1 0 110 2H3a1 1 0 01-1-1zm1.343-4.95a1 1 0 001.414-1.414l-.708-.708a1 1 0 00-1.414 1.414l.708.708zM10 5a5 5 0 100 10 5 5 0 000-10z" /></svg>
                 ) : (
                   <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" /></svg>
                 )}
               </button>
-              <button onClick={() => fetchFeeds(false)} disabled={isAnyLoading} className="hover:bg-gray-100 dark:hover:bg-gray-800 p-2 rounded-full transition-colors disabled:opacity-50 text-gray-600 dark:text-gray-400" title="Atualizar Todos">
+              <button onClick={() => fetchFeeds(false)} disabled={isAnyLoading} className="hover:bg-gray-100 dark:hover:bg-gray-800 p-2 rounded-full transition-colors disabled:opacity-50 text-gray-600 dark:text-gray-400">
                 <svg className={`w-5 h-5 ${isAnyLoading ? 'opacity-50' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
               </button>
             </div>
           </header>
 
-          {/* Área Principal de Colunas (Scroll Horizontal em telas menores) */}
-          <main className="flex-1 overflow-x-auto overflow-y-hidden p-4 custom-scrollbar">
+          {/* min-h-0 e flex-1 aplicados aqui para a rolagem funcionar internamente */}
+          <main className="flex-1 min-h-0 overflow-x-auto overflow-y-hidden p-4 custom-scrollbar">
             <div className="flex gap-4 h-full min-w-max md:min-w-0 md:grid md:grid-cols-3">
               
               {feedsConfig.map(feed => {
                 const feedState = feedsData[feed.id];
                 
                 return (
-                  <div key={feed.id} className="w-[85vw] sm:w-[350px] md:w-auto md:flex-1 h-full flex flex-col bg-white dark:bg-black border border-gray-200 dark:border-gray-800 rounded-xl shadow-sm flex-shrink-0">
+                  <div key={feed.id} className="w-[85vw] sm:w-[350px] md:w-auto md:flex-1 h-full flex flex-col bg-white dark:bg-black border border-gray-200 dark:border-gray-800 rounded-xl shadow-sm flex-shrink-0 min-h-0">
                     
-                    {/* Header da Coluna */}
-                    <div className="p-3 bg-gray-50 dark:bg-[#16181c] border-b border-gray-200 dark:border-gray-800 flex justify-between items-center rounded-t-xl shrink-0">
+                    <div className="p-3 bg-gray-50 dark:bg-[#16181c] border-b border-gray-200 dark:border-gray-800 flex justify-between items-center rounded-t-xl flex-shrink-0">
                       <div className="flex items-center gap-2">
                         <img src={feed.avatar} alt={feed.name} className="w-8 h-8 rounded-full shadow-sm" />
                         <div>
@@ -261,8 +279,8 @@
                       </div>
                     </div>
 
-                    {/* Scroll Interno da Coluna com Notícias */}
-                    <div className="flex-1 overflow-y-auto custom-scrollbar relative">
+                    {/* Aqui a mágica do Scroll acontece com o min-h-0 */}
+                    <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar relative">
                       
                       {feedState.error && (
                         <div className="m-3 p-3 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 text-sm border border-red-200 dark:border-red-900/50 rounded-lg">
@@ -299,13 +317,18 @@
                                 </p>
                               )}
 
+                              {/* Imagem agora renderiza completa com w-full h-auto */}
                               {item.image && (
-                                <div className="mt-2 rounded-xl overflow-hidden border border-gray-200 dark:border-gray-800 max-h-48">
-                                  <img src={item.image} alt="Capa" className="w-full h-full object-cover" onError={(e) => e.target.style.display = 'none'} />
+                                <div className="mt-2 rounded-xl overflow-hidden border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-[#101214]">
+                                  <img 
+                                    src={item.image} 
+                                    alt="Capa" 
+                                    className="w-full h-auto object-cover" 
+                                    onError={(e) => e.target.style.display = 'none'} 
+                                  />
                                 </div>
                               )}
 
-                              {/* Ícones de interação decorativos */}
                               <div className="flex justify-between items-center w-full max-w-[200px] text-gray-400 dark:text-gray-500 mt-3">
                                 <div className="hover:text-blue-500 transition-colors cursor-pointer"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg></div>
                                 <div className="hover:text-green-500 transition-colors cursor-pointer"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg></div>
