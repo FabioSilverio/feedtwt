@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Radar Econômico - Painel Turbo</title>
+  <title>Radar Econômico - Estúdio de Criação</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = { darkMode: 'class' }
@@ -23,7 +23,7 @@
   <div id="root" class="h-full flex flex-col"></div>
 
   <script type="text/babel">
-    const { useState, useEffect, useCallback } = React;
+    const { useState, useEffect, useCallback, useRef } = React;
 
     const App = () => {
       const [feedsData, setFeedsData] = useState({
@@ -32,8 +32,8 @@
         estadao:   { news: [], loading: true, error: null }
       });
       
-      // Novo estado para guardar as palavras mais buscadas no Google Trends
-      const [trends, setTrends] = useState([]);
+      const [tweetDraft, setTweetDraft] = useState("");
+      const [copied, setCopied] = useState(false);
 
       const [darkMode, setDarkMode] = useState(() => {
         const savedTheme = localStorage.getItem('theme');
@@ -45,6 +45,19 @@
         { id: 'infomoney', name: 'InfoMoney', handle: '@infomoney', avatar: 'https://ui-avatars.com/api/?name=IM&background=0D9488&color=fff&rounded=true&bold=true', url: 'https://www.infomoney.com.br/feed/' },
         { id: 'valor', name: 'Valor Econômico', handle: '@valor', avatar: 'https://ui-avatars.com/api/?name=VE&background=005A54&color=fff&rounded=true&bold=true', url: 'https://valor.globo.com/rss/valor' },
         { id: 'estadao', name: 'Estadão', handle: '@estadao', avatar: 'https://ui-avatars.com/api/?name=ES&background=1E3A8A&color=fff&rounded=true&bold=true', url: 'https://www.estadao.com.br/arc/outboundfeeds/rss/economia/' }
+      ];
+
+      // Dicionário do "Radar de Mercado Interno"
+      const marketKeywords = [
+        { word: 'dólar', score: 98 }, { word: 'selic', score: 95 },
+        { word: 'ibovespa', score: 90 }, { word: 'haddad', score: 88 },
+        { word: 'petrobras', score: 85 }, { word: 'vale', score: 85 },
+        { word: 'copom', score: 92 }, { word: 'inflação', score: 86 },
+        { word: 'juros', score: 82 }, { word: 'trump', score: 95 },
+        { word: 'china', score: 80 }, { word: 'imposto', score: 75 },
+        { word: 'lucro', score: 70 }, { word: 'bitcoin', score: 89 },
+        { word: 'cripto', score: 84 }, { word: 'mercado livre', score: 75 },
+        { word: 'banco central', score: 88 }, { word: 'arcabouço', score: 80 }
       ];
 
       useEffect(() => {
@@ -89,6 +102,35 @@
         setFeedsData(prev => ({ ...prev, [id]: { ...prev[id], ...newState } }));
       };
 
+      // Avaliador de Score com base no radar interno
+      const renderTrendScore = (title, description) => {
+        const fullText = `${title} ${description}`.toLowerCase();
+        
+        let highestMatch = null;
+
+        for (const kw of marketKeywords) {
+          const regex = new RegExp(`\\b${kw.word}\\b`, 'i');
+          if (regex.test(fullText)) {
+            if (!highestMatch || kw.score > highestMatch.score) {
+              highestMatch = kw;
+            }
+          }
+        }
+
+        if (highestMatch) {
+          let colorClass = "text-orange-600 bg-orange-100 dark:bg-orange-900/30 dark:text-orange-400";
+          if (highestMatch.score >= 90) colorClass = "text-red-600 bg-red-100 dark:bg-red-900/30 dark:text-red-400"; 
+          
+          return (
+            <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold mt-2 mb-1 ${colorClass} uppercase tracking-wide border border-current/20`}>
+              <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M12.395 2.553a1 1 0 00-1.45-.385c-.345.23-.614.558-.822.88-.214.33-.403.713-.57 1.116-.334.804-.614 1.768-.84 2.734a31.365 31.365 0 00-.613 3.58 2.64 2.64 0 01-.945-1.067c-.328-.68-.398-1.534-.398-2.654A1 1 0 005.05 6.05 6.981 6.981 0 003 11a7 7 0 1011.95-4.95c-.592-.591-.98-.985-1.348-1.467-.363-.476-.724-1.063-1.207-2.03zM12.12 15.12A3 3 0 017 13s.879.5 2.5.5c0-1 .5-4 1.25-4.5.5 1 .786 1.293 1.371 1.879A2.99 2.99 0 0113 13a2.99 2.99 0 01-.879 2.121z" clipRule="evenodd" /></svg>
+              Score {highestMatch.score} • Radar: {highestMatch.word}
+            </div>
+          );
+        }
+        return null;
+      };
+
       const fetchXML = async (url) => {
         const timestamp = new Date().getTime();
         const urlWithCache = url + (url.includes('?') ? '&' : '?') + 't=' + timestamp;
@@ -115,56 +157,7 @@
             }
           } catch (e) { continue; }
         }
-        throw new Error('Bloqueio nos proxies originais');
-      };
-
-      // Função Exclusiva para buscar as tendências no Google
-      const fetchGoogleTrends = async () => {
-        try {
-          const xmlText = await fetchXML('https://trends.google.com/trends/trendingsearches/daily/rss?geo=BR');
-          const parser = new DOMParser();
-          const xmlDoc = parser.parseFromString(xmlText, "text/xml");
-          const items = xmlDoc.querySelectorAll("item title");
-          
-          // Extrai o texto, remove caracteres estranhos e transforma em minúsculo
-          const keywords = Array.from(items).map(node => node.textContent.toLowerCase().trim());
-          setTrends(keywords);
-          return keywords;
-        } catch (error) {
-          console.error("Não foi possível carregar o Google Trends", error);
-          return [];
-        }
-      };
-
-      // Função que verifica o match e cria a tag visual de Score
-      const renderTrendScore = (title, description, currentTrends) => {
-        if (!currentTrends || currentTrends.length === 0) return null;
-        
-        const fullText = `${title} ${description}`.toLowerCase();
-        
-        // Procura se alguma palavra do Trends está no texto da notícia
-        const matchIndex = currentTrends.findIndex(trend => {
-          // Usa regex para garantir que é a palavra inteira, não um pedaço de outra palavra
-          const regex = new RegExp(`\\b${trend}\\b`, 'i');
-          return regex.test(fullText);
-        });
-
-        if (matchIndex !== -1) {
-          const trendWord = currentTrends[matchIndex];
-          // O Score diminui quanto mais baixo o assunto estiver no ranking (Top 1 = 99, Top 2 = 94...)
-          const score = Math.max(15, 99 - (matchIndex * 5)); 
-          
-          let colorClass = "text-orange-600 bg-orange-100 dark:bg-orange-900/30 dark:text-orange-400";
-          if (score > 80) colorClass = "text-red-600 bg-red-100 dark:bg-red-900/30 dark:text-red-400"; // Mais quente
-          
-          return (
-            <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold mt-2 mb-1 ${colorClass} uppercase tracking-wide border border-current/20`}>
-              <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M12.395 2.553a1 1 0 00-1.45-.385c-.345.23-.614.558-.822.88-.214.33-.403.713-.57 1.116-.334.804-.614 1.768-.84 2.734a31.365 31.365 0 00-.613 3.58 2.64 2.64 0 01-.945-1.067c-.328-.68-.398-1.534-.398-2.654A1 1 0 005.05 6.05 6.981 6.981 0 003 11a7 7 0 1011.95-4.95c-.592-.591-.98-.985-1.348-1.467-.363-.476-.724-1.063-1.207-2.03zM12.12 15.12A3 3 0 017 13s.879.5 2.5.5c0-1 .5-4 1.25-4.5.5 1 .786 1.293 1.371 1.879A2.99 2.99 0 0113 13a2.99 2.99 0 01-.879 2.121z" clipRule="evenodd" /></svg>
-              Score {score} • Alta nas Buscas: {trendWord}
-            </div>
-          );
-        }
-        return null;
+        throw new Error('Bloqueio nos proxies');
       };
 
       const parseXML = (xmlText) => {
@@ -214,12 +207,6 @@
       };
 
       const fetchFeeds = useCallback(async (isSilentRefresh = false) => {
-        // Atualiza as tendências do Google primeiro
-        let currentTrends = trends;
-        if (!isSilentRefresh) {
-          currentTrends = await fetchGoogleTrends();
-        }
-
         feedsConfig.forEach(async (feed) => {
           if (!isSilentRefresh) updateFeedState(feed.id, { loading: true, error: null });
           
@@ -252,23 +239,39 @@
               const uniqueNews = Array.from(new Map(items.map(i => [i.link, i])).values());
               updateFeedState(feed.id, { news: uniqueNews, loading: false, error: null });
             } catch (fallbackErr) {
-              updateFeedState(feed.id, { loading: false, error: `Acesso bloqueado pela segurança do jornal. O sistema continuará tentando em segundo plano.` });
+              updateFeedState(feed.id, { loading: false, error: `Acesso bloqueado pela segurança do jornal.` });
             }
           }
         });
-      }, [trends]);
+      }, []);
 
       useEffect(() => {
         fetchFeeds();
         const intervalId = setInterval(() => { fetchFeeds(true); }, 5 * 60 * 1000);
         return () => clearInterval(intervalId);
-      }, []); // Executa na montagem
+      }, [fetchFeeds]);
+
+      // Ação para mandar pro rascunho
+      const sendToDraft = (e, title, link) => {
+        e.preventDefault(); // Impede de abrir o link da notícia
+        e.stopPropagation();
+        
+        const newContent = `${title}\n${link}\n\n`;
+        setTweetDraft(prev => prev ? prev + newContent : newContent);
+      };
+
+      const copyToClipboard = () => {
+        navigator.clipboard.writeText(tweetDraft);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      };
 
       const isAnyLoading = Object.values(feedsData).some(f => f.loading);
 
       return (
         <div className="flex flex-col h-full bg-gray-100 dark:bg-[#101214] transition-colors duration-200">
           
+          {/* Header Superior */}
           <header className="flex-shrink-0 bg-white dark:bg-black border-b border-gray-200 dark:border-gray-800 px-4 md:px-6 py-3 flex justify-between items-center shadow-sm z-20">
             <h1 className="text-xl font-extrabold text-gray-900 dark:text-gray-100 tracking-tight flex items-center gap-2">
               Radar Econômico
@@ -293,90 +296,144 @@
             </div>
           </header>
 
-          <main className="flex-1 min-h-0 overflow-x-auto overflow-y-hidden p-4 custom-scrollbar">
-            <div className="flex gap-4 h-full min-w-max md:min-w-0 md:grid md:grid-cols-3">
-              
-              {feedsConfig.map(feed => {
-                const feedState = feedsData[feed.id];
+          {/* Área Principal dividida: Feeds na Esquerda, Rascunho na Direita */}
+          <main className="flex-1 min-h-0 flex flex-col md:flex-row w-full max-w-[1600px] mx-auto">
+            
+            {/* Colunas de Feeds (Esquerda) */}
+            <div className="flex-1 min-w-0 overflow-x-auto overflow-y-hidden p-3 custom-scrollbar">
+              <div className="flex gap-3 h-full min-w-max md:min-w-0 md:flex-row">
                 
-                return (
-                  <div key={feed.id} className="w-[85vw] sm:w-[350px] md:w-auto md:flex-1 h-full flex flex-col bg-white dark:bg-black border border-gray-200 dark:border-gray-800 rounded-xl shadow-sm flex-shrink-0 min-h-0">
-                    
-                    <div className="p-3 bg-gray-50 dark:bg-[#16181c] border-b border-gray-200 dark:border-gray-800 flex justify-between items-center rounded-t-xl flex-shrink-0">
-                      <div className="flex items-center gap-2">
-                        <img src={feed.avatar} alt={feed.name} className="w-8 h-8 rounded-full shadow-sm" />
-                        <div>
-                          <h2 className="font-bold text-[15px] text-gray-900 dark:text-gray-100 leading-tight">{feed.name}</h2>
-                          <span className="text-xs text-gray-500">{feed.handle}</span>
+                {feedsConfig.map(feed => {
+                  const feedState = feedsData[feed.id];
+                  
+                  return (
+                    // Reduzimos a largura de w-[350px] para w-[280px] / flex-1
+                    <div key={feed.id} className="w-[85vw] sm:w-[280px] md:flex-1 h-full flex flex-col bg-white dark:bg-black border border-gray-200 dark:border-gray-800 rounded-xl shadow-sm flex-shrink-0 min-h-0">
+                      
+                      <div className="p-2.5 bg-gray-50 dark:bg-[#16181c] border-b border-gray-200 dark:border-gray-800 flex justify-between items-center rounded-t-xl flex-shrink-0">
+                        <div className="flex items-center gap-2">
+                          <img src={feed.avatar} alt={feed.name} className="w-7 h-7 rounded-full shadow-sm" />
+                          <div>
+                            <h2 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 leading-tight">{feed.name}</h2>
+                          </div>
                         </div>
                       </div>
-                    </div>
 
-                    <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar relative">
-                      
-                      {feedState.error && (
-                        <div className="m-3 p-3 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 text-sm border border-red-200 dark:border-red-900/50 rounded-lg">
-                          <span className="font-bold">Aviso:</span> {feedState.error}
-                        </div>
-                      )}
-
-                      {!feedState.loading && feedState.news.length === 0 && !feedState.error && (
-                        <div className="p-8 text-center text-gray-500 text-sm">Nenhuma notícia encontrada.</div>
-                      )}
-
-                      {feedState.news.map((item) => (
-                        <a key={item.id} href={item.link} target="_blank" rel="noopener noreferrer" className="block p-4 border-b border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-[#1c1f23] transition-colors cursor-pointer group">
-                          <div className="flex gap-3">
-                            <div className="flex-shrink-0">
-                              <img src={feed.avatar} alt="" className="w-10 h-10 rounded-full opacity-90 group-hover:opacity-100 transition-opacity" />
-                            </div>
-                            
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-1 text-[14px] mb-1">
-                                <span className="font-bold text-gray-900 dark:text-gray-100 truncate">{feed.name}</span>
-                                <span className="text-gray-500 dark:text-gray-500 truncate hidden sm:inline">{feed.handle}</span>
-                                <span className="text-gray-500 dark:text-gray-500 flex-shrink-0">·</span>
-                                <span className="text-gray-500 dark:text-gray-500 hover:underline flex-shrink-0 whitespace-nowrap" title="Horário">{formatTwitterTime(item.dateObj)}</span>
-                              </div>
-                              
-                              <p className="text-[14px] text-gray-900 dark:text-gray-100 font-medium mb-1 leading-snug">
-                                {item.title}
-                              </p>
-                              
-                              {/* Aqui entra a nova inteligência do Google Trends */}
-                              {renderTrendScore(item.title, item.description, trends)}
-                              
-                              {item.description && item.description !== item.title && (
-                                <p className="text-[13px] text-gray-600 dark:text-gray-400 mb-2 mt-1.5 leading-snug line-clamp-3">
-                                  {item.description}
-                                </p>
-                              )}
-
-                              {item.image && (
-                                <div className="mt-2 rounded-xl overflow-hidden border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-[#101214]">
-                                  <img 
-                                    src={item.image} 
-                                    alt="Capa da notícia" 
-                                    className="w-full h-auto object-cover" 
-                                    onError={(e) => e.target.style.display = 'none'} 
-                                  />
-                                </div>
-                              )}
-
-                              <div className="flex justify-between items-center w-full max-w-[200px] text-gray-400 dark:text-gray-500 mt-3">
-                                <div className="hover:text-blue-500 transition-colors cursor-pointer"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg></div>
-                                <div className="hover:text-green-500 transition-colors cursor-pointer"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg></div>
-                                <div className="hover:text-pink-500 transition-colors cursor-pointer"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" /></svg></div>
-                              </div>
-                            </div>
+                      <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar relative">
+                        
+                        {feedState.error && (
+                          <div className="m-2 p-2 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 text-[13px] border border-red-200 dark:border-red-900/50 rounded-lg">
+                            <span className="font-bold">Aviso:</span> {feedState.error}
                           </div>
-                        </a>
-                      ))}
+                        )}
+
+                        {!feedState.loading && feedState.news.length === 0 && !feedState.error && (
+                          <div className="p-8 text-center text-gray-500 text-sm">Vazio.</div>
+                        )}
+
+                        {feedState.news.map((item) => (
+                          <a key={item.id} href={item.link} target="_blank" rel="noopener noreferrer" className="block p-3 border-b border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-[#1c1f23] transition-colors cursor-pointer group">
+                            <div className="flex gap-2.5">
+                              <div className="flex-shrink-0">
+                                <img src={feed.avatar} alt="" className="w-8 h-8 rounded-full opacity-90 group-hover:opacity-100 transition-opacity" />
+                              </div>
+                              
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-1 text-[13px] mb-1">
+                                  <span className="font-bold text-gray-900 dark:text-gray-100 truncate">{feed.name}</span>
+                                  <span className="text-gray-500 dark:text-gray-500 hover:underline flex-shrink-0 whitespace-nowrap" title="Horário">· {formatTwitterTime(item.dateObj)}</span>
+                                </div>
+                                
+                                <p className="text-[14px] text-gray-900 dark:text-gray-100 font-medium mb-1 leading-snug">
+                                  {item.title}
+                                </p>
+                                
+                                {/* O Score Radar Inteligente */}
+                                {renderTrendScore(item.title, item.description)}
+                                
+                                {item.description && item.description !== item.title && (
+                                  <p className="text-[13px] text-gray-600 dark:text-gray-400 mb-2 mt-1.5 leading-snug line-clamp-2">
+                                    {item.description}
+                                  </p>
+                                )}
+
+                                {item.image && (
+                                  <div className="mt-2 rounded-xl overflow-hidden border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-[#101214]">
+                                    <img src={item.image} alt="Capa" className="w-full h-auto object-cover" onError={(e) => e.target.style.display = 'none'} />
+                                  </div>
+                                )}
+
+                                {/* Barra de Interação com botão de Mandar pro Rascunho */}
+                                <div className="flex justify-between items-center w-full max-w-[180px] text-gray-400 dark:text-gray-500 mt-2.5">
+                                  
+                                  {/* Botão de Enviar pro Draft */}
+                                  <div 
+                                    onClick={(e) => sendToDraft(e, item.title, item.link)}
+                                    className="flex items-center gap-1.5 hover:text-blue-500 transition-colors cursor-pointer group/btn"
+                                    title="Enviar para o Rascunho"
+                                  >
+                                    <div className="p-1.5 rounded-full group-hover/btn:bg-blue-50 dark:group-hover/btn:bg-blue-900/20">
+                                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
+                                    </div>
+                                  </div>
+
+                                  <div className="p-1.5 rounded-full hover:bg-green-50 dark:hover:bg-green-900/20 hover:text-green-500 transition-colors"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg></div>
+                                  <div className="p-1.5 rounded-full hover:bg-pink-50 dark:hover:bg-pink-900/20 hover:text-pink-500 transition-colors"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" /></svg></div>
+                                </div>
+                              </div>
+                            </div>
+                          </a>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
+
+            {/* Painel do Estúdio de Criação (Rascunho) - Direita */}
+            <aside className="w-full md:w-80 lg:w-96 border-t md:border-t-0 md:border-l border-gray-200 dark:border-gray-800 bg-white dark:bg-black flex flex-col flex-shrink-0 h-[40vh] md:h-full z-10 shadow-lg md:shadow-none">
+              
+              <div className="p-4 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-[#16181c]">
+                <h2 className="font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+                  <svg className="w-5 h-5 text-blue-500" fill="currentColor" viewBox="0 0 24 24"><path d="M23.643 4.937c-.835.37-1.732.62-2.675.733.962-.576 1.7-1.49 2.048-2.578-.9.534-1.897.922-2.958 1.13-.85-.904-2.06-1.47-3.4-1.47-2.572 0-4.658 2.086-4.658 4.66 0 .364.042.718.12 1.06-3.873-.195-7.304-2.05-9.602-4.868-.4.69-.63 1.49-.63 2.342 0 1.616.823 3.043 2.072 3.878-.764-.025-1.482-.234-2.11-.583v.06c0 2.257 1.605 4.14 3.737 4.568-.392.106-.803.162-1.227.162-.3 0-.593-.028-.877-.082.593 1.85 2.313 3.198 4.352 3.234-1.595 1.25-3.604 1.995-5.786 1.995-.376 0-.747-.022-1.112-.065 2.062 1.323 4.51 2.093 7.14 2.093 8.57 0 13.255-7.098 13.255-13.254 0-.2-.005-.402-.014-.602.91-.658 1.7-1.477 2.323-2.41z"></path></svg>
+                  Estúdio do X
+                </h2>
+                <p className="text-xs text-gray-500 mt-1">Clique no ícone de balão das notícias para enviá-las para cá.</p>
+              </div>
+
+              <div className="flex-1 p-4 flex flex-col relative">
+                <textarea 
+                  className="flex-1 w-full bg-transparent resize-none outline-none text-[15px] text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-600 custom-scrollbar"
+                  placeholder="O que está acontecendo no mercado?"
+                  value={tweetDraft}
+                  onChange={(e) => setTweetDraft(e.target.value)}
+                />
+                
+                <div className="mt-3 flex items-center justify-between border-t border-gray-100 dark:border-gray-800 pt-3">
+                  <span className={`text-sm font-medium ${tweetDraft.length > 280 ? 'text-red-500' : 'text-gray-400'}`}>
+                    {tweetDraft.length} / 280
+                  </span>
+                  
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => setTweetDraft('')}
+                      className="px-4 py-1.5 rounded-full text-sm font-bold text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                    >
+                      Limpar
+                    </button>
+                    <button 
+                      onClick={copyToClipboard}
+                      disabled={!tweetDraft.trim()}
+                      className={`px-4 py-1.5 rounded-full text-sm font-bold text-white transition-all shadow-sm ${tweetDraft.trim() ? (copied ? 'bg-green-500' : 'bg-blue-500 hover:bg-blue-600') : 'bg-blue-300 dark:bg-blue-900/50 cursor-not-allowed'}`}
+                    >
+                      {copied ? 'Copiado!' : 'Copiar Texto'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+            </aside>
           </main>
         </div>
       );
