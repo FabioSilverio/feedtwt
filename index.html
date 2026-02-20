@@ -33,6 +33,7 @@
       });
       
       const [tweetDraft, setTweetDraft] = useState("");
+      const [draftImage, setDraftImage] = useState(null); // Estado para a imagem do rascunho
       const [copied, setCopied] = useState(false);
 
       const [darkMode, setDarkMode] = useState(() => {
@@ -47,7 +48,6 @@
         { id: 'estadao', name: 'Estadão', handle: '@estadao', avatar: 'https://ui-avatars.com/api/?name=ES&background=1E3A8A&color=fff&rounded=true&bold=true', url: 'https://www.estadao.com.br/arc/outboundfeeds/rss/economia/' }
       ];
 
-      // Dicionário do "Radar de Mercado Interno"
       const marketKeywords = [
         { word: 'dólar', score: 98 }, { word: 'selic', score: 95 },
         { word: 'ibovespa', score: 90 }, { word: 'haddad', score: 88 },
@@ -102,10 +102,8 @@
         setFeedsData(prev => ({ ...prev, [id]: { ...prev[id], ...newState } }));
       };
 
-      // Avaliador de Score com base no radar interno
       const renderTrendScore = (title, description) => {
         const fullText = `${title} ${description}`.toLowerCase();
-        
         let highestMatch = null;
 
         for (const kw of marketKeywords) {
@@ -196,7 +194,8 @@
           parsedItems.push({
             id: link + Math.random(),
             title: title,
-            description: cleanText(description).substring(0, 150) + '...',
+            // REMOVIDO: O limite de 150 caracteres. Agora carrega o resumo inteiro.
+            description: cleanText(description),
             link: link,
             dateObj: pubDate,
             image: imageUrl
@@ -247,17 +246,23 @@
 
       useEffect(() => {
         fetchFeeds();
-        const intervalId = setInterval(() => { fetchFeeds(true); }, 5 * 60 * 1000);
+        // TIMER AJUSTADO: Agora atualiza exatamente a cada 3 minutos (3 * 60 * 1000)
+        const intervalId = setInterval(() => { fetchFeeds(true); }, 3 * 60 * 1000);
         return () => clearInterval(intervalId);
       }, [fetchFeeds]);
 
-      // Ação para mandar pro rascunho
-      const sendToDraft = (e, title, link) => {
-        e.preventDefault(); // Impede de abrir o link da notícia
+      // Modificado para receber a imagem também
+      const sendToDraft = (e, title, link, image) => {
+        e.preventDefault(); 
         e.stopPropagation();
         
         const newContent = `${title}\n${link}\n\n`;
         setTweetDraft(prev => prev ? prev + newContent : newContent);
+        
+        // Se a notícia tiver imagem, joga para o estado da imagem do rascunho
+        if (image) {
+          setDraftImage(image);
+        }
       };
 
       const copyToClipboard = () => {
@@ -266,12 +271,16 @@
         setTimeout(() => setCopied(false), 2000);
       };
 
+      const clearDraft = () => {
+        setTweetDraft('');
+        setDraftImage(null);
+      };
+
       const isAnyLoading = Object.values(feedsData).some(f => f.loading);
 
       return (
         <div className="flex flex-col h-full bg-gray-100 dark:bg-[#101214] transition-colors duration-200">
           
-          {/* Header Superior */}
           <header className="flex-shrink-0 bg-white dark:bg-black border-b border-gray-200 dark:border-gray-800 px-4 md:px-6 py-3 flex justify-between items-center shadow-sm z-20">
             <h1 className="text-xl font-extrabold text-gray-900 dark:text-gray-100 tracking-tight flex items-center gap-2">
               Radar Econômico
@@ -296,10 +305,9 @@
             </div>
           </header>
 
-          {/* Área Principal dividida: Feeds na Esquerda, Rascunho na Direita */}
           <main className="flex-1 min-h-0 flex flex-col md:flex-row w-full max-w-[1600px] mx-auto">
             
-            {/* Colunas de Feeds (Esquerda) */}
+            {/* Colunas de Feeds */}
             <div className="flex-1 min-w-0 overflow-x-auto overflow-y-hidden p-3 custom-scrollbar">
               <div className="flex gap-3 h-full min-w-max md:min-w-0 md:flex-row">
                 
@@ -307,7 +315,6 @@
                   const feedState = feedsData[feed.id];
                   
                   return (
-                    // Reduzimos a largura de w-[350px] para w-[280px] / flex-1
                     <div key={feed.id} className="w-[85vw] sm:w-[280px] md:flex-1 h-full flex flex-col bg-white dark:bg-black border border-gray-200 dark:border-gray-800 rounded-xl shadow-sm flex-shrink-0 min-h-0">
                       
                       <div className="p-2.5 bg-gray-50 dark:bg-[#16181c] border-b border-gray-200 dark:border-gray-800 flex justify-between items-center rounded-t-xl flex-shrink-0">
@@ -348,11 +355,11 @@
                                   {item.title}
                                 </p>
                                 
-                                {/* O Score Radar Inteligente */}
                                 {renderTrendScore(item.title, item.description)}
                                 
+                                {/* REMOVIDO: line-clamp. O resumo aparece inteiro agora! */}
                                 {item.description && item.description !== item.title && (
-                                  <p className="text-[13px] text-gray-600 dark:text-gray-400 mb-2 mt-1.5 leading-snug line-clamp-2">
+                                  <p className="text-[13px] text-gray-600 dark:text-gray-400 mb-2 mt-1.5 leading-snug">
                                     {item.description}
                                   </p>
                                 )}
@@ -363,12 +370,11 @@
                                   </div>
                                 )}
 
-                                {/* Barra de Interação com botão de Mandar pro Rascunho */}
                                 <div className="flex justify-between items-center w-full max-w-[180px] text-gray-400 dark:text-gray-500 mt-2.5">
                                   
-                                  {/* Botão de Enviar pro Draft */}
+                                  {/* Botão de Enviar pro Draft enviando a IMAGEM junto */}
                                   <div 
-                                    onClick={(e) => sendToDraft(e, item.title, item.link)}
+                                    onClick={(e) => sendToDraft(e, item.title, item.link, item.image)}
                                     className="flex items-center gap-1.5 hover:text-blue-500 transition-colors cursor-pointer group/btn"
                                     title="Enviar para o Rascunho"
                                   >
@@ -391,33 +397,52 @@
               </div>
             </div>
 
-            {/* Painel do Estúdio de Criação (Rascunho) - Direita */}
-            <aside className="w-full md:w-80 lg:w-96 border-t md:border-t-0 md:border-l border-gray-200 dark:border-gray-800 bg-white dark:bg-black flex flex-col flex-shrink-0 h-[40vh] md:h-full z-10 shadow-lg md:shadow-none">
+            {/* Painel do Estúdio de Criação */}
+            <aside className="w-full md:w-80 lg:w-96 border-t md:border-t-0 md:border-l border-gray-200 dark:border-gray-800 bg-white dark:bg-black flex flex-col flex-shrink-0 h-[45vh] md:h-full z-10 shadow-lg md:shadow-none">
               
               <div className="p-4 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-[#16181c]">
                 <h2 className="font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
                   <svg className="w-5 h-5 text-blue-500" fill="currentColor" viewBox="0 0 24 24"><path d="M23.643 4.937c-.835.37-1.732.62-2.675.733.962-.576 1.7-1.49 2.048-2.578-.9.534-1.897.922-2.958 1.13-.85-.904-2.06-1.47-3.4-1.47-2.572 0-4.658 2.086-4.658 4.66 0 .364.042.718.12 1.06-3.873-.195-7.304-2.05-9.602-4.868-.4.69-.63 1.49-.63 2.342 0 1.616.823 3.043 2.072 3.878-.764-.025-1.482-.234-2.11-.583v.06c0 2.257 1.605 4.14 3.737 4.568-.392.106-.803.162-1.227.162-.3 0-.593-.028-.877-.082.593 1.85 2.313 3.198 4.352 3.234-1.595 1.25-3.604 1.995-5.786 1.995-.376 0-.747-.022-1.112-.065 2.062 1.323 4.51 2.093 7.14 2.093 8.57 0 13.255-7.098 13.255-13.254 0-.2-.005-.402-.014-.602.91-.658 1.7-1.477 2.323-2.41z"></path></svg>
                   Estúdio do X
                 </h2>
-                <p className="text-xs text-gray-500 mt-1">Clique no ícone de balão das notícias para enviá-las para cá.</p>
+                <p className="text-xs text-gray-500 mt-1">Clique no ícone de balão das notícias para preparar o tweet.</p>
               </div>
 
-              <div className="flex-1 p-4 flex flex-col relative">
+              <div className="flex-1 p-4 flex flex-col relative overflow-y-auto custom-scrollbar">
+                
+                {/* Visualizador de Imagem Adicionado */}
+                {draftImage && (
+                  <div className="relative mb-4 group shrink-0">
+                    <img src={draftImage} alt="Imagem da notícia" className="w-full h-40 object-cover rounded-lg border border-gray-200 dark:border-gray-700" />
+                    
+                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center rounded-lg backdrop-blur-sm">
+                      <svg className="w-8 h-8 text-white mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                      <span className="text-white text-sm font-bold px-4 text-center">Clique com o botão direito e "Copiar Imagem"</span>
+                    </div>
+
+                    <button onClick={() => setDraftImage(null)} className="absolute top-2 right-2 p-1.5 bg-red-500/90 hover:bg-red-600 text-white rounded-full transition-colors z-10" title="Remover imagem">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                  </div>
+                )}
+
                 <textarea 
-                  className="flex-1 w-full bg-transparent resize-none outline-none text-[15px] text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-600 custom-scrollbar"
+                  className="flex-1 w-full bg-transparent resize-none outline-none text-[15px] text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-600 custom-scrollbar min-h-[150px]"
                   placeholder="O que está acontecendo no mercado?"
                   value={tweetDraft}
                   onChange={(e) => setTweetDraft(e.target.value)}
                 />
-                
-                <div className="mt-3 flex items-center justify-between border-t border-gray-100 dark:border-gray-800 pt-3">
+              </div>
+              
+              <div className="p-4 border-t border-gray-100 dark:border-gray-800 bg-white dark:bg-black shrink-0">
+                <div className="flex items-center justify-between">
                   <span className={`text-sm font-medium ${tweetDraft.length > 280 ? 'text-red-500' : 'text-gray-400'}`}>
                     {tweetDraft.length} / 280
                   </span>
                   
                   <div className="flex gap-2">
                     <button 
-                      onClick={() => setTweetDraft('')}
+                      onClick={clearDraft}
                       className="px-4 py-1.5 rounded-full text-sm font-bold text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
                     >
                       Limpar
@@ -427,7 +452,7 @@
                       disabled={!tweetDraft.trim()}
                       className={`px-4 py-1.5 rounded-full text-sm font-bold text-white transition-all shadow-sm ${tweetDraft.trim() ? (copied ? 'bg-green-500' : 'bg-blue-500 hover:bg-blue-600') : 'bg-blue-300 dark:bg-blue-900/50 cursor-not-allowed'}`}
                     >
-                      {copied ? 'Copiado!' : 'Copiar Texto'}
+                      {copied ? 'Texto Copiado!' : 'Copiar Texto'}
                     </button>
                   </div>
                 </div>
