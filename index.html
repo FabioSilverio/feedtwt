@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Radar Econômico - Painel</title>
+  <title>Radar Econômico - Painel Turbo</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = { darkMode: 'class' }
@@ -12,7 +12,6 @@
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <style>
-    /* Estilização da barra de rolagem */
     .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
     .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
     .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
@@ -32,6 +31,9 @@
         valor:     { news: [], loading: true, error: null },
         estadao:   { news: [], loading: true, error: null }
       });
+      
+      // Novo estado para guardar as palavras mais buscadas no Google Trends
+      const [trends, setTrends] = useState([]);
 
       const [darkMode, setDarkMode] = useState(() => {
         const savedTheme = localStorage.getItem('theme');
@@ -40,21 +42,9 @@
       });
 
       const feedsConfig = [
-        { 
-          id: 'infomoney', name: 'InfoMoney', handle: '@infomoney', 
-          avatar: 'https://ui-avatars.com/api/?name=IM&background=0D9488&color=fff&rounded=true&bold=true', 
-          url: 'https://www.infomoney.com.br/feed/' 
-        },
-        { 
-          id: 'valor', name: 'Valor Econômico', handle: '@valor', 
-          avatar: 'https://ui-avatars.com/api/?name=VE&background=005A54&color=fff&rounded=true&bold=true', 
-          url: 'https://valor.globo.com/rss/valor' 
-        },
-        { 
-          id: 'estadao', name: 'Estadão', handle: '@estadao', 
-          avatar: 'https://ui-avatars.com/api/?name=ES&background=1E3A8A&color=fff&rounded=true&bold=true', 
-          url: 'https://www.estadao.com.br/arc/outboundfeeds/rss/economia/' 
-        }
+        { id: 'infomoney', name: 'InfoMoney', handle: '@infomoney', avatar: 'https://ui-avatars.com/api/?name=IM&background=0D9488&color=fff&rounded=true&bold=true', url: 'https://www.infomoney.com.br/feed/' },
+        { id: 'valor', name: 'Valor Econômico', handle: '@valor', avatar: 'https://ui-avatars.com/api/?name=VE&background=005A54&color=fff&rounded=true&bold=true', url: 'https://valor.globo.com/rss/valor' },
+        { id: 'estadao', name: 'Estadão', handle: '@estadao', avatar: 'https://ui-avatars.com/api/?name=ES&background=1E3A8A&color=fff&rounded=true&bold=true', url: 'https://www.estadao.com.br/arc/outboundfeeds/rss/economia/' }
       ];
 
       useEffect(() => {
@@ -80,9 +70,7 @@
         if (diffMins < 1) return `${exactTime} · Agora`;
         if (diffMins < 60) return `${exactTime} · ${diffMins} m`;
         if (diffHrs < 24) return `${exactTime} · ${diffHrs} h`;
-        
-        const dateStr = date.toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' }).replace('.', '');
-        return `${exactTime} · ${dateStr}`;
+        return `${exactTime} · ${date.toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' }).replace('.', '')}`;
       };
 
       const cleanText = (html) => {
@@ -105,7 +93,6 @@
         const timestamp = new Date().getTime();
         const urlWithCache = url + (url.includes('?') ? '&' : '?') + 't=' + timestamp;
         
-        // Rotação de proxies mais eficiente
         const proxies = [
           `https://api.allorigins.win/get?url=${encodeURIComponent(urlWithCache)}`,
           `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(urlWithCache)}`,
@@ -116,10 +103,8 @@
           try {
             const res = await fetch(proxy);
             if (!res.ok) continue;
-            
             let text = await res.text();
             
-            // Se for a API do allorigins, o XML vem envelopado em um JSON na chave "contents"
             if (proxy.includes('allorigins.win/get')) {
               const json = JSON.parse(text);
               text = json.contents;
@@ -128,11 +113,58 @@
             if ((text.includes('<rss') || text.includes('<feed')) && !text.toLowerCase().includes('just a moment...')) {
               return text;
             }
-          } catch (e) {
-            continue; 
-          }
+          } catch (e) { continue; }
         }
         throw new Error('Bloqueio nos proxies originais');
+      };
+
+      // Função Exclusiva para buscar as tendências no Google
+      const fetchGoogleTrends = async () => {
+        try {
+          const xmlText = await fetchXML('https://trends.google.com/trends/trendingsearches/daily/rss?geo=BR');
+          const parser = new DOMParser();
+          const xmlDoc = parser.parseFromString(xmlText, "text/xml");
+          const items = xmlDoc.querySelectorAll("item title");
+          
+          // Extrai o texto, remove caracteres estranhos e transforma em minúsculo
+          const keywords = Array.from(items).map(node => node.textContent.toLowerCase().trim());
+          setTrends(keywords);
+          return keywords;
+        } catch (error) {
+          console.error("Não foi possível carregar o Google Trends", error);
+          return [];
+        }
+      };
+
+      // Função que verifica o match e cria a tag visual de Score
+      const renderTrendScore = (title, description, currentTrends) => {
+        if (!currentTrends || currentTrends.length === 0) return null;
+        
+        const fullText = `${title} ${description}`.toLowerCase();
+        
+        // Procura se alguma palavra do Trends está no texto da notícia
+        const matchIndex = currentTrends.findIndex(trend => {
+          // Usa regex para garantir que é a palavra inteira, não um pedaço de outra palavra
+          const regex = new RegExp(`\\b${trend}\\b`, 'i');
+          return regex.test(fullText);
+        });
+
+        if (matchIndex !== -1) {
+          const trendWord = currentTrends[matchIndex];
+          // O Score diminui quanto mais baixo o assunto estiver no ranking (Top 1 = 99, Top 2 = 94...)
+          const score = Math.max(15, 99 - (matchIndex * 5)); 
+          
+          let colorClass = "text-orange-600 bg-orange-100 dark:bg-orange-900/30 dark:text-orange-400";
+          if (score > 80) colorClass = "text-red-600 bg-red-100 dark:bg-red-900/30 dark:text-red-400"; // Mais quente
+          
+          return (
+            <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold mt-2 mb-1 ${colorClass} uppercase tracking-wide border border-current/20`}>
+              <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M12.395 2.553a1 1 0 00-1.45-.385c-.345.23-.614.558-.822.88-.214.33-.403.713-.57 1.116-.334.804-.614 1.768-.84 2.734a31.365 31.365 0 00-.613 3.58 2.64 2.64 0 01-.945-1.067c-.328-.68-.398-1.534-.398-2.654A1 1 0 005.05 6.05 6.981 6.981 0 003 11a7 7 0 1011.95-4.95c-.592-.591-.98-.985-1.348-1.467-.363-.476-.724-1.063-1.207-2.03zM12.12 15.12A3 3 0 017 13s.879.5 2.5.5c0-1 .5-4 1.25-4.5.5 1 .786 1.293 1.371 1.879A2.99 2.99 0 0113 13a2.99 2.99 0 01-.879 2.121z" clipRule="evenodd" /></svg>
+              Score {score} • Alta nas Buscas: {trendWord}
+            </div>
+          );
+        }
+        return null;
       };
 
       const parseXML = (xmlText) => {
@@ -142,7 +174,7 @@
         const parsedItems = [];
         
         Array.from(items).forEach(item => {
-          const title = item.querySelector("title")?.textContent || "";
+          let title = item.querySelector("title")?.textContent || "";
           
           let link = item.querySelector("link")?.textContent;
           if (!link) {
@@ -181,54 +213,56 @@
         return parsedItems.sort((a, b) => b.dateObj - a.dateObj);
       };
 
-      const fetchFeeds = useCallback((isSilentRefresh = false) => {
+      const fetchFeeds = useCallback(async (isSilentRefresh = false) => {
+        // Atualiza as tendências do Google primeiro
+        let currentTrends = trends;
+        if (!isSilentRefresh) {
+          currentTrends = await fetchGoogleTrends();
+        }
+
         feedsConfig.forEach(async (feed) => {
           if (!isSilentRefresh) updateFeedState(feed.id, { loading: true, error: null });
           
           try {
             const xml = await fetchXML(feed.url);
             const items = parseXML(xml);
+            if (items.length === 0) throw new Error("Feed vazio");
             
             const uniqueNews = Array.from(new Map(items.map(item => [item.link, item])).values());
             updateFeedState(feed.id, { news: uniqueNews, loading: false, error: null });
           } catch (err) {
-            // PLANO C: Se os proxies falharem (comum no Estadão), usa a API do rss2json direto
             try {
-              const fallbackRes = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feed.url)}`);
-              const fallbackData = await fallbackRes.json();
+              let gNewsQuery = '';
+              if (feed.id === 'estadao') gNewsQuery = 'economia site:estadao.com.br';
+              else if (feed.id === 'valor') gNewsQuery = 'site:valor.globo.com';
+              else if (feed.id === 'infomoney') gNewsQuery = 'site:infomoney.com.br';
               
-              if (fallbackData.status === 'ok' && fallbackData.items.length > 0) {
-                 const items = fallbackData.items.map(item => {
-                   // Ajuste do fuso horário para bater com o horário de Brasília
-                   let pubDate = new Date(item.pubDate.replace(' ', 'T') + '-03:00');
-                   if (isNaN(pubDate.getTime())) pubDate = new Date();
-                   
-                   return {
-                     id: item.link + Math.random(),
-                     title: item.title,
-                     description: cleanText(item.description).substring(0, 150) + '...',
-                     link: item.link,
-                     dateObj: pubDate,
-                     image: item.enclosure?.link || extractImage(item.content) || extractImage(item.description)
-                   };
-                 });
-                 const uniqueNews = Array.from(new Map(items.map(i => [i.link, i])).values());
-                 updateFeedState(feed.id, { news: uniqueNews, loading: false, error: null });
-              } else {
-                 throw new Error('Falha no fallback');
-              }
+              const gNewsUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(gNewsQuery)}&hl=pt-BR&gl=BR&ceid=BR:pt-419`;
+              const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(gNewsUrl)}`;
+              const res = await fetch(proxyUrl);
+              const xmlText = await res.text();
+              const items = parseXML(xmlText);
+              
+              if (items.length === 0) throw new Error('Google News Vazio');
+              
+              items.forEach(item => {
+                 item.title = item.title.replace(/ - Estadão$/i, '').replace(/ - Valor Econômico$/i, '').replace(/ - InfoMoney$/i, '');
+              });
+
+              const uniqueNews = Array.from(new Map(items.map(i => [i.link, i])).values());
+              updateFeedState(feed.id, { news: uniqueNews, loading: false, error: null });
             } catch (fallbackErr) {
-              updateFeedState(feed.id, { loading: false, error: `Acesso barrado pelos servidores da notícia.` });
+              updateFeedState(feed.id, { loading: false, error: `Acesso bloqueado pela segurança do jornal. O sistema continuará tentando em segundo plano.` });
             }
           }
         });
-      }, []);
+      }, [trends]);
 
       useEffect(() => {
         fetchFeeds();
         const intervalId = setInterval(() => { fetchFeeds(true); }, 5 * 60 * 1000);
         return () => clearInterval(intervalId);
-      }, [fetchFeeds]);
+      }, []); // Executa na montagem
 
       const isAnyLoading = Object.values(feedsData).some(f => f.loading);
 
@@ -259,7 +293,6 @@
             </div>
           </header>
 
-          {/* min-h-0 e flex-1 aplicados aqui para a rolagem funcionar internamente */}
           <main className="flex-1 min-h-0 overflow-x-auto overflow-y-hidden p-4 custom-scrollbar">
             <div className="flex gap-4 h-full min-w-max md:min-w-0 md:grid md:grid-cols-3">
               
@@ -279,12 +312,11 @@
                       </div>
                     </div>
 
-                    {/* Aqui a mágica do Scroll acontece com o min-h-0 */}
                     <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar relative">
                       
                       {feedState.error && (
                         <div className="m-3 p-3 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 text-sm border border-red-200 dark:border-red-900/50 rounded-lg">
-                          <span className="font-bold">Ops!</span> {feedState.error}
+                          <span className="font-bold">Aviso:</span> {feedState.error}
                         </div>
                       )}
 
@@ -307,22 +339,24 @@
                                 <span className="text-gray-500 dark:text-gray-500 hover:underline flex-shrink-0 whitespace-nowrap" title="Horário">{formatTwitterTime(item.dateObj)}</span>
                               </div>
                               
-                              <p className="text-[14px] text-gray-900 dark:text-gray-100 font-medium mb-1.5 leading-snug">
+                              <p className="text-[14px] text-gray-900 dark:text-gray-100 font-medium mb-1 leading-snug">
                                 {item.title}
                               </p>
                               
+                              {/* Aqui entra a nova inteligência do Google Trends */}
+                              {renderTrendScore(item.title, item.description, trends)}
+                              
                               {item.description && item.description !== item.title && (
-                                <p className="text-[13px] text-gray-600 dark:text-gray-400 mb-2 leading-snug line-clamp-3">
+                                <p className="text-[13px] text-gray-600 dark:text-gray-400 mb-2 mt-1.5 leading-snug line-clamp-3">
                                   {item.description}
                                 </p>
                               )}
 
-                              {/* Imagem agora renderiza completa com w-full h-auto */}
                               {item.image && (
                                 <div className="mt-2 rounded-xl overflow-hidden border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-[#101214]">
                                   <img 
                                     src={item.image} 
-                                    alt="Capa" 
+                                    alt="Capa da notícia" 
                                     className="w-full h-auto object-cover" 
                                     onError={(e) => e.target.style.display = 'none'} 
                                   />
