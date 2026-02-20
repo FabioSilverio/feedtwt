@@ -35,6 +35,7 @@
       const [tweetDraft, setTweetDraft] = useState("");
       const [draftImage, setDraftImage] = useState(null); 
       const [copied, setCopied] = useState(false);
+      const [lastUpdated, setLastUpdated] = useState(new Date());
       
       const textareaRef = useRef(null);
 
@@ -62,7 +63,6 @@
         { word: 'banco central', score: 88 }, { word: 'arcabouço', score: 80 }
       ];
 
-      // Array de Emojis úteis para notícias
       const quickEmojis = ['🚨', '⚠️', '🔥', '📊', '📈', '📉', '💰', '💵', '🇧🇷', '🇺🇸', '🗞️', '🗣️', '👀', '👇', '📌'];
 
       useEffect(() => {
@@ -125,7 +125,7 @@
           if (highestMatch.score >= 90) colorClass = "text-red-600 bg-red-100 dark:bg-red-900/30 dark:text-red-400"; 
           
           return (
-            <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold mt-2 mb-1 ${colorClass} uppercase tracking-wide border border-current/20`}>
+            <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold mt-2 mb-1 ${colorClass} uppercase tracking-wide border border-current/20 cursor-default select-none`}>
               <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M12.395 2.553a1 1 0 00-1.45-.385c-.345.23-.614.558-.822.88-.214.33-.403.713-.57 1.116-.334.804-.614 1.768-.84 2.734a31.365 31.365 0 00-.613 3.58 2.64 2.64 0 01-.945-1.067c-.328-.68-.398-1.534-.398-2.654A1 1 0 005.05 6.05 6.981 6.981 0 003 11a7 7 0 1011.95-4.95c-.592-.591-.98-.985-1.348-1.467-.363-.476-.724-1.063-1.207-2.03zM12.12 15.12A3 3 0 017 13s.879.5 2.5.5c0-1 .5-4 1.25-4.5.5 1 .786 1.293 1.371 1.879A2.99 2.99 0 0113 13a2.99 2.99 0 01-.879 2.121z" clipRule="evenodd" /></svg>
               Score {highestMatch.score} • Radar: {highestMatch.word}
             </div>
@@ -185,10 +185,19 @@
           let pubDate = new Date(pubDateStr);
           if (isNaN(pubDate.getTime())) pubDate = new Date();
           
-          const description = item.querySelector("description")?.textContent || item.querySelector("summary")?.textContent || "";
+          // Lógica para puxar o texto inteiro, burlando a limitação do Valor Econômico
           const contentEncoded = item.getElementsByTagNameNS("*", "encoded")?.[0]?.textContent || item.querySelector("content")?.textContent || "";
+          const descTag = item.querySelector("description")?.textContent || item.querySelector("summary")?.textContent || "";
           
-          let imageUrl = extractImage(contentEncoded) || extractImage(description);
+          const cleanDescTag = cleanText(descTag);
+          const cleanContentEncoded = cleanText(contentEncoded);
+          
+          let finalDescription = cleanContentEncoded.length > cleanDescTag.length ? cleanContentEncoded : cleanDescTag;
+          if (finalDescription.length > 800) {
+             finalDescription = finalDescription.substring(0, 800) + '...';
+          }
+          
+          let imageUrl = extractImage(contentEncoded) || extractImage(descTag);
           if (!imageUrl) {
             const media = item.getElementsByTagNameNS("*", "content")[0];
             if (media && media.getAttribute('url')) {
@@ -199,7 +208,7 @@
           parsedItems.push({
             id: link + Math.random(),
             title: title,
-            description: cleanText(description),
+            description: finalDescription,
             link: link,
             dateObj: pubDate,
             image: imageUrl
@@ -246,18 +255,26 @@
             }
           }
         });
+        setLastUpdated(new Date());
       }, []);
 
       useEffect(() => {
         fetchFeeds();
+        
+        // Timer exato de 3 minutos
         const intervalId = setInterval(() => { fetchFeeds(true); }, 3 * 60 * 1000);
-        return () => clearInterval(intervalId);
+        
+        // Se a aba do navegador adormecer, força a atualização ao voltar
+        const handleFocus = () => { fetchFeeds(true); };
+        window.addEventListener('focus', handleFocus);
+        
+        return () => {
+          clearInterval(intervalId);
+          window.removeEventListener('focus', handleFocus);
+        };
       }, [fetchFeeds]);
 
-      const sendToDraft = (e, title, link, image) => {
-        e.preventDefault(); 
-        e.stopPropagation();
-        
+      const sendToDraft = (title, link, image) => {
         const newContent = `${title}\n${link}\n\n`;
         setTweetDraft(prev => prev ? prev + newContent : newContent);
         
@@ -277,7 +294,6 @@
         setDraftImage(null);
       };
 
-      // Função para inserir emoji onde o cursor está piscando
       const insertEmoji = (emoji) => {
         const textarea = textareaRef.current;
         if (textarea) {
@@ -287,7 +303,6 @@
           const newText = text.substring(0, start) + emoji + text.substring(end);
           setTweetDraft(newText);
           
-          // Devolve o foco e o cursor pro lugar certo logo após adicionar o emoji
           setTimeout(() => {
             textarea.selectionStart = textarea.selectionEnd = start + emoji.length;
             textarea.focus();
@@ -303,14 +318,19 @@
         <div className="flex flex-col h-full bg-gray-100 dark:bg-[#101214] transition-colors duration-200">
           
           <header className="flex-shrink-0 bg-white dark:bg-black border-b border-gray-200 dark:border-gray-800 px-4 md:px-6 py-3 flex justify-between items-center shadow-sm z-20">
-            <h1 className="text-xl font-extrabold text-gray-900 dark:text-gray-100 tracking-tight flex items-center gap-2">
-              Radar de Notícias
-              {isAnyLoading && (
-                <svg className="w-5 h-5 text-blue-500 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-              )}
-            </h1>
+            <div className="flex items-center gap-4">
+              <h1 className="text-xl font-extrabold text-gray-900 dark:text-gray-100 tracking-tight flex items-center gap-2">
+                Radar de Notícias
+                {isAnyLoading && (
+                  <svg className="w-5 h-5 text-blue-500 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                )}
+              </h1>
+              <span className="hidden md:inline text-xs font-medium text-gray-500 bg-gray-100 dark:bg-gray-800 px-2.5 py-1 rounded-md">
+                Atualizado às {lastUpdated.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+              </span>
+            </div>
             
             <div className="flex items-center gap-2">
               <button onClick={() => setDarkMode(!darkMode)} className="hover:bg-gray-100 dark:hover:bg-gray-800 p-2 rounded-full transition-colors text-gray-600 dark:text-gray-400">
@@ -359,7 +379,8 @@
                         )}
 
                         {feedState.news.map((item) => (
-                          <a key={item.id} href={item.link} target="_blank" rel="noopener noreferrer" className="block p-3 border-b border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-[#1c1f23] transition-colors cursor-pointer group">
+                          // Transformado em DIV para liberar a seleção de texto. O Link agora fica apenas no título e na imagem.
+                          <div key={item.id} className="block p-3 border-b border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-[#1c1f23] transition-colors group">
                             <div className="flex gap-2.5">
                               <div className="flex-shrink-0">
                                 <img src={feed.avatar} alt="" className="w-8 h-8 rounded-full opacity-90 group-hover:opacity-100 transition-opacity" />
@@ -368,31 +389,31 @@
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-1 text-[13px] mb-1">
                                   <span className="font-bold text-gray-900 dark:text-gray-100 truncate">{feed.name}</span>
-                                  <span className="text-gray-500 dark:text-gray-500 hover:underline flex-shrink-0 whitespace-nowrap" title="Horário">· {formatTwitterTime(item.dateObj)}</span>
+                                  <span className="text-gray-500 dark:text-gray-500 hover:underline flex-shrink-0 whitespace-nowrap cursor-default" title="Horário">· {formatTwitterTime(item.dateObj)}</span>
                                 </div>
                                 
-                                <p className="text-[14px] text-gray-900 dark:text-gray-100 font-medium mb-1 leading-snug">
+                                <a href={item.link} target="_blank" rel="noopener noreferrer" className="block text-[14px] text-gray-900 dark:text-gray-100 font-bold mb-1 leading-snug hover:text-blue-500 transition-colors">
                                   {item.title}
-                                </p>
+                                </a>
                                 
                                 {renderTrendScore(item.title, item.description)}
                                 
+                                {/* Subtítulo agora é facilmente selecionável com o mouse */}
                                 {item.description && item.description !== item.title && (
-                                  <p className="text-[13px] text-gray-600 dark:text-gray-400 mb-2 mt-1.5 leading-snug">
+                                  <p className="text-[13px] text-gray-600 dark:text-gray-400 mb-2 mt-1.5 leading-relaxed cursor-text selection:bg-blue-200 dark:selection:bg-blue-900">
                                     {item.description}
                                   </p>
                                 )}
 
                                 {item.image && (
-                                  <div className="mt-2 rounded-xl overflow-hidden border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-[#101214]">
-                                    <img src={item.image} alt="Capa" className="w-full h-auto object-cover" onError={(e) => e.target.style.display = 'none'} />
-                                  </div>
+                                  <a href={item.link} target="_blank" rel="noopener noreferrer" className="block mt-2 rounded-xl overflow-hidden border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-[#101214]">
+                                    <img src={item.image} alt="Capa" className="w-full h-auto object-cover hover:opacity-90 transition-opacity" onError={(e) => e.target.style.display = 'none'} />
+                                  </a>
                                 )}
 
                                 <div className="flex justify-between items-center w-full max-w-[180px] text-gray-400 dark:text-gray-500 mt-2.5">
-                                  
                                   <div 
-                                    onClick={(e) => sendToDraft(e, item.title, item.link, item.image)}
+                                    onClick={() => sendToDraft(item.title, item.link, item.image)}
                                     className="flex items-center gap-1.5 hover:text-blue-500 transition-colors cursor-pointer group/btn"
                                     title="Enviar para o Rascunho"
                                   >
@@ -400,13 +421,12 @@
                                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
                                     </div>
                                   </div>
-
-                                  <div className="p-1.5 rounded-full hover:bg-green-50 dark:hover:bg-green-900/20 hover:text-green-500 transition-colors"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg></div>
-                                  <div className="p-1.5 rounded-full hover:bg-pink-50 dark:hover:bg-pink-900/20 hover:text-pink-500 transition-colors"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" /></svg></div>
+                                  <div className="p-1.5 rounded-full hover:bg-green-50 dark:hover:bg-green-900/20 hover:text-green-500 transition-colors cursor-pointer"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg></div>
+                                  <div className="p-1.5 rounded-full hover:bg-pink-50 dark:hover:bg-pink-900/20 hover:text-pink-500 transition-colors cursor-pointer"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" /></svg></div>
                                 </div>
                               </div>
                             </div>
-                          </a>
+                          </div>
                         ))}
                       </div>
                     </div>
@@ -425,13 +445,13 @@
                 <p className="text-xs text-gray-500 mt-1">Sua mesa de operação. Escreva, copie e poste.</p>
               </div>
 
-              {/* BARRA DE EMOJIS RÁPIDOS */}
+              {/* Seletor de Emojis */}
               <div className="flex gap-2 p-3 overflow-x-auto custom-scrollbar border-b border-gray-100 dark:border-gray-800 bg-white dark:bg-black shrink-0">
                 {quickEmojis.map(emoji => (
                   <button 
                     key={emoji}
                     onClick={() => insertEmoji(emoji)}
-                    className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded bg-gray-100 hover:bg-gray-200 dark:bg-[#16181c] dark:hover:bg-gray-700 text-[18px] transition-colors"
+                    className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded bg-gray-100 hover:bg-gray-200 dark:bg-[#16181c] dark:hover:bg-gray-800 text-[18px] transition-colors"
                     title={`Inserir ${emoji}`}
                   >
                     {emoji}
@@ -442,18 +462,16 @@
               <div className="flex-1 p-4 flex flex-col relative overflow-y-auto custom-scrollbar">
                 
                 {draftImage && (
-                  <div className="relative mb-4 group shrink-0">
-                    <img src={draftImage} alt="Imagem da notícia" className="w-full h-40 object-cover rounded-lg border border-gray-200 dark:border-gray-700" />
-                    
-                    {/* pointer-events-none foi adicionado aqui para liberar o clique! */}
-                    <div className="absolute inset-0 pointer-events-none bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center rounded-lg backdrop-blur-sm">
-                      <svg className="w-8 h-8 text-white mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
-                      <span className="text-white text-sm font-bold px-4 text-center">Botão Direito -> "Copiar Imagem"</span>
+                  <div className="relative mb-4 shrink-0 flex flex-col items-center">
+                    <div className="relative border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden bg-gray-50 dark:bg-[#101214] w-full">
+                      {/* Imagem totalmente livre de bloqueios para clique direito */}
+                      <img src={draftImage} alt="Capa" className="w-full h-auto max-h-48 object-contain" />
+                      
+                      <button onClick={() => setDraftImage(null)} className="absolute top-2 right-2 p-1.5 bg-red-500 hover:bg-red-600 text-white rounded-full shadow-md z-10 transition-colors" title="Remover imagem">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                      </button>
                     </div>
-
-                    <button onClick={() => setDraftImage(null)} className="absolute top-2 right-2 p-1.5 bg-red-500/90 hover:bg-red-600 text-white rounded-full transition-colors z-10" title="Remover imagem">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
-                    </button>
+                    <p className="text-xs text-gray-500 mt-2 font-medium">👆 Clique com o botão direito na imagem para copiar</p>
                   </div>
                 )}
 
