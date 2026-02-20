@@ -33,7 +33,7 @@
       });
       
       const [tweetDraft, setTweetDraft] = useState("");
-      const [draftImage, setDraftImage] = useState(null); // Estado para a imagem do rascunho
+      const [draftImage, setDraftImage] = useState(null); 
       const [copied, setCopied] = useState(false);
 
       const [darkMode, setDarkMode] = useState(() => {
@@ -42,10 +42,11 @@
         return window.matchMedia('(prefers-color-scheme: dark)').matches;
       });
 
+      // A URL do Estadão foi alterada para puxar o feed geral
       const feedsConfig = [
         { id: 'infomoney', name: 'InfoMoney', handle: '@infomoney', avatar: 'https://ui-avatars.com/api/?name=IM&background=0D9488&color=fff&rounded=true&bold=true', url: 'https://www.infomoney.com.br/feed/' },
         { id: 'valor', name: 'Valor Econômico', handle: '@valor', avatar: 'https://ui-avatars.com/api/?name=VE&background=005A54&color=fff&rounded=true&bold=true', url: 'https://valor.globo.com/rss/valor' },
-        { id: 'estadao', name: 'Estadão', handle: '@estadao', avatar: 'https://ui-avatars.com/api/?name=ES&background=1E3A8A&color=fff&rounded=true&bold=true', url: 'https://www.estadao.com.br/arc/outboundfeeds/rss/economia/' }
+        { id: 'estadao', name: 'Estadão', handle: '@estadao', avatar: 'https://ui-avatars.com/api/?name=ES&background=1E3A8A&color=fff&rounded=true&bold=true', url: 'https://www.estadao.com.br/arc/outboundfeeds/rss/' }
       ];
 
       const marketKeywords = [
@@ -194,7 +195,6 @@
           parsedItems.push({
             id: link + Math.random(),
             title: title,
-            // REMOVIDO: O limite de 150 caracteres. Agora carrega o resumo inteiro.
             description: cleanText(description),
             link: link,
             dateObj: pubDate,
@@ -219,7 +219,8 @@
           } catch (err) {
             try {
               let gNewsQuery = '';
-              if (feed.id === 'estadao') gNewsQuery = 'economia site:estadao.com.br';
+              // Remoção da palavra chave "economia" no Estadão
+              if (feed.id === 'estadao') gNewsQuery = 'site:estadao.com.br';
               else if (feed.id === 'valor') gNewsQuery = 'site:valor.globo.com';
               else if (feed.id === 'infomoney') gNewsQuery = 'site:infomoney.com.br';
               
@@ -246,12 +247,10 @@
 
       useEffect(() => {
         fetchFeeds();
-        // TIMER AJUSTADO: Agora atualiza exatamente a cada 3 minutos (3 * 60 * 1000)
         const intervalId = setInterval(() => { fetchFeeds(true); }, 3 * 60 * 1000);
         return () => clearInterval(intervalId);
       }, [fetchFeeds]);
 
-      // Modificado para receber a imagem também
       const sendToDraft = (e, title, link, image) => {
         e.preventDefault(); 
         e.stopPropagation();
@@ -259,7 +258,6 @@
         const newContent = `${title}\n${link}\n\n`;
         setTweetDraft(prev => prev ? prev + newContent : newContent);
         
-        // Se a notícia tiver imagem, joga para o estado da imagem do rascunho
         if (image) {
           setDraftImage(image);
         }
@@ -283,7 +281,7 @@
           
           <header className="flex-shrink-0 bg-white dark:bg-black border-b border-gray-200 dark:border-gray-800 px-4 md:px-6 py-3 flex justify-between items-center shadow-sm z-20">
             <h1 className="text-xl font-extrabold text-gray-900 dark:text-gray-100 tracking-tight flex items-center gap-2">
-              Radar Econômico
+              Radar de Notícias
               {isAnyLoading && (
                 <svg className="w-5 h-5 text-blue-500 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -307,7 +305,6 @@
 
           <main className="flex-1 min-h-0 flex flex-col md:flex-row w-full max-w-[1600px] mx-auto">
             
-            {/* Colunas de Feeds */}
             <div className="flex-1 min-w-0 overflow-x-auto overflow-y-hidden p-3 custom-scrollbar">
               <div className="flex gap-3 h-full min-w-max md:min-w-0 md:flex-row">
                 
@@ -357,7 +354,6 @@
                                 
                                 {renderTrendScore(item.title, item.description)}
                                 
-                                {/* REMOVIDO: line-clamp. O resumo aparece inteiro agora! */}
                                 {item.description && item.description !== item.title && (
                                   <p className="text-[13px] text-gray-600 dark:text-gray-400 mb-2 mt-1.5 leading-snug">
                                     {item.description}
@@ -372,7 +368,6 @@
 
                                 <div className="flex justify-between items-center w-full max-w-[180px] text-gray-400 dark:text-gray-500 mt-2.5">
                                   
-                                  {/* Botão de Enviar pro Draft enviando a IMAGEM junto */}
                                   <div 
                                     onClick={(e) => sendToDraft(e, item.title, item.link, item.image)}
                                     className="flex items-center gap-1.5 hover:text-blue-500 transition-colors cursor-pointer group/btn"
@@ -397,7 +392,6 @@
               </div>
             </div>
 
-            {/* Painel do Estúdio de Criação */}
             <aside className="w-full md:w-80 lg:w-96 border-t md:border-t-0 md:border-l border-gray-200 dark:border-gray-800 bg-white dark:bg-black flex flex-col flex-shrink-0 h-[45vh] md:h-full z-10 shadow-lg md:shadow-none">
               
               <div className="p-4 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-[#16181c]">
@@ -410,7 +404,6 @@
 
               <div className="flex-1 p-4 flex flex-col relative overflow-y-auto custom-scrollbar">
                 
-                {/* Visualizador de Imagem Adicionado */}
                 {draftImage && (
                   <div className="relative mb-4 group shrink-0">
                     <img src={draftImage} alt="Imagem da notícia" className="w-full h-40 object-cover rounded-lg border border-gray-200 dark:border-gray-700" />
