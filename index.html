@@ -181,6 +181,9 @@
         const items = xmlDoc.querySelectorAll("item, entry");
         const parsedItems = [];
         
+        const now = new Date().getTime();
+        const MAX_AGE_MS = 24 * 60 * 60 * 1000; // BARREIRA DE TEMPO: 24 horas cravadas.
+
         Array.from(items).forEach(item => {
           let title = item.querySelector("title")?.textContent || "";
           
@@ -197,6 +200,11 @@
           let pubDate = new Date(pubDateStr);
           if (isNaN(pubDate.getTime())) pubDate = new Date();
           
+          // O FILTRO CIRÚRGICO: Se a notícia tiver mais de 24h, ela é ignorada imediatamente.
+          if (now - pubDate.getTime() > MAX_AGE_MS) {
+            return; 
+          }
+
           const contentEncoded = item.getElementsByTagNameNS("*", "encoded")?.[0]?.textContent || item.querySelector("content")?.textContent || "";
           const descTag = item.querySelector("description")?.textContent || item.querySelector("summary")?.textContent || "";
           
@@ -226,7 +234,8 @@
           });
         });
         
-        return parsedItems.sort((a, b) => b.dateObj - a.dateObj);
+        // Garante a ordenação rigorosa (da mais nova para a mais velha)
+        return parsedItems.sort((a, b) => b.dateObj.getTime() - a.dateObj.getTime());
       };
 
       const processAndTranslateNews = async (items, feed) => {
@@ -255,7 +264,7 @@
           try {
             const xml = await fetchXML(feed.url);
             const items = parseXML(xml);
-            if (items.length === 0) throw new Error("Feed vazio");
+            if (items.length === 0) throw new Error("Feed vazio de notícias recentes");
             
             await processAndTranslateNews(items, feed);
           } catch (err) {
@@ -263,15 +272,15 @@
               let gNewsQuery = '';
               let gNewsUrl = '';
               
-              // Ajuste crucial: Forçando busca nas últimas 12 horas (when:12h) e direcionando para os EUA no caso do Washington Post
+              // Fallback também blindado: Só busca nas últimas 24 horas (when:1d)
               if (feed.id === 'washingtonpost') {
-                gNewsQuery = 'source:"The Washington Post" when:12h';
+                gNewsQuery = 'site:washingtonpost.com when:1d';
                 gNewsUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(gNewsQuery)}&hl=en-US&gl=US&ceid=US:en`;
               } else if (feed.id === 'valor') {
-                gNewsQuery = 'site:valor.globo.com when:12h';
+                gNewsQuery = 'site:valor.globo.com when:1d';
                 gNewsUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(gNewsQuery)}&hl=pt-BR&gl=BR&ceid=BR:pt-419`;
               } else if (feed.id === 'infomoney') {
-                gNewsQuery = 'site:infomoney.com.br when:12h';
+                gNewsQuery = 'site:infomoney.com.br when:1d';
                 gNewsUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(gNewsQuery)}&hl=pt-BR&gl=BR&ceid=BR:pt-419`;
               }
               
@@ -280,7 +289,7 @@
               const xmlText = await res.text();
               const items = parseXML(xmlText);
               
-              if (items.length === 0) throw new Error('Google News Vazio');
+              if (items.length === 0) throw new Error('Google News Vazio de notícias recentes');
               
               items.forEach(item => {
                  item.title = item.title.replace(/ - The Washington Post$/i, '').replace(/ - Valor Econômico$/i, '').replace(/ - InfoMoney$/i, '');
@@ -288,7 +297,7 @@
 
               await processAndTranslateNews(items, feed);
             } catch (fallbackErr) {
-              updateFeedState(feed.id, { loading: false, error: `Acesso bloqueado temporariamente pelos servidores.` });
+              updateFeedState(feed.id, { loading: false, error: `Sem notícias novas nas últimas 24h ou bloqueio de servidor.` });
             }
           }
         });
@@ -402,13 +411,13 @@
                       <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar relative">
                         
                         {feedState.error && (
-                          <div className="m-2 p-2 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 text-[13px] border border-red-200 dark:border-red-900/50 rounded-lg">
+                          <div className="m-2 p-2 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 text-[13px] border border-amber-200 dark:border-amber-900/50 rounded-lg">
                             <span className="font-bold">Aviso:</span> {feedState.error}
                           </div>
                         )}
 
                         {!feedState.loading && feedState.news.length === 0 && !feedState.error && (
-                          <div className="p-8 text-center text-gray-500 text-sm">Vazio.</div>
+                          <div className="p-8 text-center text-gray-500 text-sm">Nenhuma notícia fresca nas últimas 24h.</div>
                         )}
 
                         {feedState.news.map((item) => (
