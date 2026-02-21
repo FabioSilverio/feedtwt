@@ -45,10 +45,11 @@
         return window.matchMedia('(prefers-color-scheme: dark)').matches;
       });
 
+      // Tradução desativada. Agora o feed é puxado na íntegra.
       const feedsConfig = [
-        { id: 'infomoney', name: 'InfoMoney', handle: '@infomoney', avatar: 'https://ui-avatars.com/api/?name=IM&background=0D9488&color=fff&rounded=true&bold=true', url: 'https://www.infomoney.com.br/feed/', translate: false },
-        { id: 'valor', name: 'Valor Econômico', handle: '@valor', avatar: 'https://ui-avatars.com/api/?name=VE&background=005A54&color=fff&rounded=true&bold=true', url: 'https://valor.globo.com/rss/valor', translate: false },
-        { id: 'washingtonpost', name: 'Washington Post', handle: '@washingtonpost', avatar: 'https://ui-avatars.com/api/?name=WP&background=000&color=fff&rounded=true&bold=true', url: 'https://feeds.washingtonpost.com/rss/national', translate: true }
+        { id: 'infomoney', name: 'InfoMoney', handle: '@infomoney', avatar: 'https://ui-avatars.com/api/?name=IM&background=0D9488&color=fff&rounded=true&bold=true', url: 'https://www.infomoney.com.br/feed/' },
+        { id: 'valor', name: 'Valor Econômico', handle: '@valor', avatar: 'https://ui-avatars.com/api/?name=VE&background=005A54&color=fff&rounded=true&bold=true', url: 'https://valor.globo.com/rss/valor' },
+        { id: 'washingtonpost', name: 'Washington Post', handle: '@washingtonpost', avatar: 'https://ui-avatars.com/api/?name=WP&background=000&color=fff&rounded=true&bold=true', url: 'https://feeds.washingtonpost.com/rss/national' }
       ];
 
       const marketKeywords = [
@@ -134,18 +135,6 @@
         return null;
       };
 
-      const translateText = async (text) => {
-        if (!text) return "";
-        try {
-          const res = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=pt-br&dt=t&q=${encodeURIComponent(text)}`);
-          const data = await res.json();
-          return data[0].map(item => item[0]).join('');
-        } catch (e) {
-          console.error("Erro na tradução:", e);
-          return text;
-        }
-      };
-
       const fetchXML = async (url) => {
         const timestamp = new Date().getTime();
         const urlWithCache = url + (url.includes('?') ? '&' : '?') + 't=' + timestamp;
@@ -180,9 +169,6 @@
         const xmlDoc = parser.parseFromString(xmlText, "text/xml");
         const items = xmlDoc.querySelectorAll("item, entry");
         const parsedItems = [];
-        
-        const now = new Date().getTime();
-        const MAX_AGE_MS = 24 * 60 * 60 * 1000; // BARREIRA DE TEMPO: 24 horas cravadas.
 
         Array.from(items).forEach(item => {
           let title = item.querySelector("title")?.textContent || "";
@@ -199,11 +185,6 @@
                              
           let pubDate = new Date(pubDateStr);
           if (isNaN(pubDate.getTime())) pubDate = new Date();
-          
-          // O FILTRO CIRÚRGICO: Se a notícia tiver mais de 24h, ela é ignorada imediatamente.
-          if (now - pubDate.getTime() > MAX_AGE_MS) {
-            return; 
-          }
 
           const contentEncoded = item.getElementsByTagNameNS("*", "encoded")?.[0]?.textContent || item.querySelector("content")?.textContent || "";
           const descTag = item.querySelector("description")?.textContent || item.querySelector("summary")?.textContent || "";
@@ -234,27 +215,8 @@
           });
         });
         
-        // Garante a ordenação rigorosa (da mais nova para a mais velha)
+        // Ordena rigorosamente da mais recente para a mais antiga
         return parsedItems.sort((a, b) => b.dateObj.getTime() - a.dateObj.getTime());
-      };
-
-      const processAndTranslateNews = async (items, feed) => {
-        let uniqueNews = Array.from(new Map(items.map(item => [item.link, item])).values());
-        
-        if (feed.translate) {
-          const topNews = uniqueNews.slice(0, 12);
-          uniqueNews = await Promise.all(topNews.map(async (item) => {
-            const translatedTitle = await translateText(item.title);
-            const translatedDesc = await translateText(item.description);
-            return { 
-              ...item, 
-              title: translatedTitle, 
-              description: translatedDesc 
-            };
-          }));
-        }
-        
-        updateFeedState(feed.id, { news: uniqueNews, loading: false, error: null });
       };
 
       const fetchFeeds = useCallback(async (isSilentRefresh = false) => {
@@ -264,23 +226,24 @@
           try {
             const xml = await fetchXML(feed.url);
             const items = parseXML(xml);
-            if (items.length === 0) throw new Error("Feed vazio de notícias recentes");
+            if (items.length === 0) throw new Error("Feed vazio");
             
-            await processAndTranslateNews(items, feed);
+            const uniqueNews = Array.from(new Map(items.map(item => [item.link, item])).values());
+            updateFeedState(feed.id, { news: uniqueNews, loading: false, error: null });
           } catch (err) {
+            // Fallback via Google News sem limitadores severos
             try {
               let gNewsQuery = '';
               let gNewsUrl = '';
               
-              // Fallback também blindado: Só busca nas últimas 24 horas (when:1d)
               if (feed.id === 'washingtonpost') {
-                gNewsQuery = 'site:washingtonpost.com when:1d';
+                gNewsQuery = 'source:"The Washington Post"';
                 gNewsUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(gNewsQuery)}&hl=en-US&gl=US&ceid=US:en`;
               } else if (feed.id === 'valor') {
-                gNewsQuery = 'site:valor.globo.com when:1d';
+                gNewsQuery = 'site:valor.globo.com';
                 gNewsUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(gNewsQuery)}&hl=pt-BR&gl=BR&ceid=BR:pt-419`;
               } else if (feed.id === 'infomoney') {
-                gNewsQuery = 'site:infomoney.com.br when:1d';
+                gNewsQuery = 'site:infomoney.com.br';
                 gNewsUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(gNewsQuery)}&hl=pt-BR&gl=BR&ceid=BR:pt-419`;
               }
               
@@ -289,15 +252,16 @@
               const xmlText = await res.text();
               const items = parseXML(xmlText);
               
-              if (items.length === 0) throw new Error('Google News Vazio de notícias recentes');
+              if (items.length === 0) throw new Error('Google News Vazio');
               
               items.forEach(item => {
                  item.title = item.title.replace(/ - The Washington Post$/i, '').replace(/ - Valor Econômico$/i, '').replace(/ - InfoMoney$/i, '');
               });
 
-              await processAndTranslateNews(items, feed);
+              const uniqueNews = Array.from(new Map(items.map(i => [i.link, i])).values());
+              updateFeedState(feed.id, { news: uniqueNews, loading: false, error: null });
             } catch (fallbackErr) {
-              updateFeedState(feed.id, { loading: false, error: `Sem notícias novas nas últimas 24h ou bloqueio de servidor.` });
+              updateFeedState(feed.id, { loading: false, error: `Acesso bloqueado temporariamente pelos servidores.` });
             }
           }
         });
@@ -402,7 +366,6 @@
                           <div>
                             <h2 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 leading-tight">
                               {feed.name}
-                              {feed.translate && <span className="ml-1.5 text-[10px] font-bold bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300 px-1.5 py-0.5 rounded uppercase">PT-BR</span>}
                             </h2>
                           </div>
                         </div>
@@ -411,13 +374,13 @@
                       <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar relative">
                         
                         {feedState.error && (
-                          <div className="m-2 p-2 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 text-[13px] border border-amber-200 dark:border-amber-900/50 rounded-lg">
+                          <div className="m-2 p-2 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 text-[13px] border border-red-200 dark:border-red-900/50 rounded-lg">
                             <span className="font-bold">Aviso:</span> {feedState.error}
                           </div>
                         )}
 
                         {!feedState.loading && feedState.news.length === 0 && !feedState.error && (
-                          <div className="p-8 text-center text-gray-500 text-sm">Nenhuma notícia fresca nas últimas 24h.</div>
+                          <div className="p-8 text-center text-gray-500 text-sm">Nenhum artigo encontrado.</div>
                         )}
 
                         {feedState.news.map((item) => (
