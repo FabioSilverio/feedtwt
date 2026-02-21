@@ -45,7 +45,6 @@
         return window.matchMedia('(prefers-color-scheme: dark)').matches;
       });
 
-      // Substituído para o feed geral (National) do Washington Post
       const feedsConfig = [
         { id: 'infomoney', name: 'InfoMoney', handle: '@infomoney', avatar: 'https://ui-avatars.com/api/?name=IM&background=0D9488&color=fff&rounded=true&bold=true', url: 'https://www.infomoney.com.br/feed/', translate: false },
         { id: 'valor', name: 'Valor Econômico', handle: '@valor', avatar: 'https://ui-avatars.com/api/?name=VE&background=005A54&color=fff&rounded=true&bold=true', url: 'https://valor.globo.com/rss/valor', translate: false },
@@ -142,7 +141,7 @@
           const data = await res.json();
           return data[0].map(item => item[0]).join('');
         } catch (e) {
-          console.error("Erro na tradução, retornando original:", e);
+          console.error("Erro na tradução:", e);
           return text;
         }
       };
@@ -262,11 +261,20 @@
           } catch (err) {
             try {
               let gNewsQuery = '';
-              if (feed.id === 'washingtonpost') gNewsQuery = 'site:washingtonpost.com';
-              else if (feed.id === 'valor') gNewsQuery = 'site:valor.globo.com';
-              else if (feed.id === 'infomoney') gNewsQuery = 'site:infomoney.com.br';
+              let gNewsUrl = '';
               
-              const gNewsUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(gNewsQuery)}&hl=pt-BR&gl=BR&ceid=BR:pt-419`;
+              // Ajuste crucial: Forçando busca nas últimas 12 horas (when:12h) e direcionando para os EUA no caso do Washington Post
+              if (feed.id === 'washingtonpost') {
+                gNewsQuery = 'source:"The Washington Post" when:12h';
+                gNewsUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(gNewsQuery)}&hl=en-US&gl=US&ceid=US:en`;
+              } else if (feed.id === 'valor') {
+                gNewsQuery = 'site:valor.globo.com when:12h';
+                gNewsUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(gNewsQuery)}&hl=pt-BR&gl=BR&ceid=BR:pt-419`;
+              } else if (feed.id === 'infomoney') {
+                gNewsQuery = 'site:infomoney.com.br when:12h';
+                gNewsUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(gNewsQuery)}&hl=pt-BR&gl=BR&ceid=BR:pt-419`;
+              }
+              
               const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(gNewsUrl)}`;
               const res = await fetch(proxyUrl);
               const xmlText = await res.text();
@@ -280,7 +288,7 @@
 
               await processAndTranslateNews(items, feed);
             } catch (fallbackErr) {
-              updateFeedState(feed.id, { loading: false, error: `Acesso bloqueado pela segurança do jornal.` });
+              updateFeedState(feed.id, { loading: false, error: `Acesso bloqueado temporariamente pelos servidores.` });
             }
           }
         });
@@ -302,10 +310,7 @@
       const sendToDraft = (title, link, image) => {
         const newContent = `${title}\n${link}\n\n`;
         setTweetDraft(prev => prev ? prev + newContent : newContent);
-        
-        if (image) {
-          setDraftImage(image);
-        }
+        if (image) setDraftImage(image);
       };
 
       const copyToClipboard = () => {
